@@ -1,0 +1,103 @@
+---
+title: "NYPD Shooting Incident Data Analysis"
+date: "2023-08-1"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Coming into this program, I had previously experienced the use of data science for biomedical applications and for computer vision; as a result, when I was watching the videos from industry and academic professionals, I expected those to remain the most intriguing fields to me. However, geographic data science took me by storm; I loved the level of tangibility its analyses and visualizations had, as well as how its visualizations facilitated intuitive assumptions to drive the analysis/modeling cycle of iteration. When I opened up the dataset provided for this exercise and saw coordinate data provided, I knew I had to make use of it.
+
+
+```{r libraries, echo=TRUE, results='hide'}
+library(tidyverse)
+library(lubridate)
+library(ggmap)
+```
+
+While the first two libraries here will likely be familiar due to their use within the in-class tutorials, ggmap is an external library I sought out to streamline the process of plotting location data; we'll see its application later in the report.
+
+## Data Cleaning
+
+```{r summary}
+incident_data <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv")
+summary(incident_data)
+```
+
+Looking at the dataset, there are tons of fields that either aren't relevant to our analysis or are otherwise redundant. INCIDENT_KEY and JURISDICTION_CODE are presumably tracking numbers used internally in the police force, and as such aren't likely to be related to other details of the shooting incidents. LOG_OF_OCCUR_DESC, LOG_CLASSFCTN_DESC, and LOCATION_DESC are all longform, varied strings rather than categorical variables, whose analysis is outside of the scope of my current knowledge. STATISTICAL_MURDER_FLAG, (ie whether a shooting incident was a murder or merely an injury or discharge of a weapon) while relevant to other analyses, was not a factor I considered relevant to this study. Finally, X_COORD_CD, Y_COORD_CD, and Lon_Lat were all redundant in use to the adjacent Latitude and Longitude variables, and so were removed. At this stage, I also removed the ten entries that had no Latitude/Longitude data, and converted the OCCUR_DATE column to the date type.
+
+
+```{r cleaning}
+incident_data <- incident_data %>%
+  mutate(OCCUR_DATE=mdy(OCCUR_DATE))
+incident_data <- incident_data[-c(1,5,7,8,9,10,17,18,21)]
+incident_data <- incident_data%>% drop_na(Latitude)
+incident_data <- incident_data%>% drop_na(Longitude)
+summary(incident_data)
+```
+
+With the data now cleaned, I could move on to visualizing the spread of shooting incidents across New York.
+
+## Data Visualizations
+
+```{r map1, echo=FALSE}
+qmplot(Longitude, Latitude, data=incident_data, maptype="toner-lite")
+```
+
+This initial visualization doesn't actually tell us much, beyond the fact that shooting incidents have happened everywhere in New York across the past two decades. (Except, apparently, some parts of Staten Island.)
+
+At this point, I was faced with the decision of what factor I wanted to explore in relation to this location data. I ended up landing on the victim's race - moreso than sex and age group, I felt that race was a key factor that could determine the clustering of similar people. Even in urban areas like New York, which are known for their diversity in makeup, historically people would tend to habitate in close proximity to people of the same race as them - either by choice or due to socio-economic factors.
+
+```{r test}
+table(incident_data$VIC_RACE)
+```
+Looking at the breakdown by victim race, black people are overwhelmingly represented, with white and black hispanics trailing and around a fifth and a tenth of respectively. While the race of 66 of the individuals was recorded as unknown, I did not scrub these rows; while it is technically missing data, I wondered if the results of my model would point to there still being other similarities between the unidentified victims.
+
+```{r map2, echo=FALSE}
+qmplot(Longitude, Latitude, data=incident_data, maptype="toner-lite", color=VIC_RACE)
+```
+
+While filtering by race does add some interesting observations - white victims being more common towards the southern coast and Staten Island, White Hispanic victims being common towards the center - ultimately the large outlier data points of black victims dominated the map and made it difficult to draw any further conclusions. As a results, I decided to see if filtering by year would yield different results.
+
+```{r map3, echo=FALSE}
+incident_data$incident_year <- year(incident_data$OCCUR_DATE)
+incident_data$numeric_date <- as.numeric(incident_data$OCCUR_DATE)
+qmplot(Longitude, Latitude, data=incident_data, maptype="toner-lite", color=VIC_RACE) + facet_wrap(~incident_year)
+```
+
+2006, 2019, and 2020 made for interesting new data points from this visualizations, with the number of black victims being far lower in the center of New York in each of those years. As a result, while the visualizations themselves did not lend themselves to any sweeping statements about the nature of the relationship between victim race and distribution of shooting incidents, there were pockets of data that indicated that it was worth modeling the relationship.
+
+## Modeling and Analysis
+
+Unfortunately, as I alluded to at the start of this report, I came into this process a complete novice to spatial analysis. While I was able to learn spatial visualization in the process of researching this report, while looking into spatial analysis methods, I came to the conclusion that learning them was well was outside of the scope of the time I had to complete this report.
+
+Fortunately, however, the dataset contains not just one but two different categorical alternatives to location data in its recording of the Precinct and Borough that the incident occurred in. As both Race and each of these were categorical rather than numerical variables, I used a logistic regression model to ascertain whether there was a relationship between each of them. 
+
+```{r logistic1}
+logistic <- glm(factor(VIC_RACE) ~ factor(BORO), data=incident_data, family="binomial")
+summary(logistic)
+```
+
+Unfortunately, the results seem to indicate that there exists no predictive relationship between the race of the victim and the Borough in which the incident took place; the p-values for each Borough as well above what they should be for statistical significance.
+
+```{r logistic2}
+logistic2 <- glm(factor(VIC_RACE) ~ factor(PRECINCT), data=incident_data, family="binomial")
+summary(logistic2)
+```
+
+The results for the Precinct are even more damning, with flat 1 p values across the board and extremely tiny estimates of impact. As a result, our models indicate that there is no relationship between the race of a victim of shooting incident and where said incident took place.
+
+## Discussion of Bias and Conclusion
+One potential source of bias that influenced this report could potentially be media influence. Not only do media sources tend to increasingly focus on gun violence over the past decade thanks to its rise as a political and social issue, such reports also tend to discuss those events with relation to the racial component of the perpetrator and the victim, as a co-morbid sociopolitical talking point. Such media exposure could've led the author to overestimate the role race plays in the incidence and distribution of shooting incidents, thus leading them to focus on it to the exclusion of other, potentially more relevant factors.
+
+Another potential source of bias could flatly be ignorance; while the author has made every attempt to familiarize themselves with the geography and history of New York, it is entirely possible that there are aspects of New York policing and/or population distribution that prove more relevant than race, but were overlooked here. 
+
+Ultimately, while the results of this report were in the negative, it does not forestall further research on the subject. Proper spacial analysis could identify areas or zones that don't correspond to the existing categorical labels that were used in this report. There are also a number of potential confounding variables that could be mediating the relationship between victim race and incident location, such as population density and other factors unavailable to us in this dataset.
+
+## Citations
+  D. Kahle and H. Wickham. ggmap: Spatial Visualization with ggplot2. The R Journal, 5(1), 144-161. URL
+  http://journal.r-project.org/archive/2013-1/kahle-wickham.pdf
